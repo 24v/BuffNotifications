@@ -1,0 +1,11 @@
+{
+    "Name": "BuffNotifications",
+    "Author": "24v",
+    "Version": "0.1.0",
+    "Description": "Get notifications on buff start / ends",
+    "UniqueID": "24v.BuffNotifications",
+    "EntryDll": "BuffNotifications.dll",
+    "MinimumApiVersion": "4.1.7",
+    "MinimumGameVersion": "1.6.14",
+    "UpdateKeys": []
+  }
