@@ -13,64 +13,29 @@ namespace BuffNotifications;
 
 internal sealed class ModEntry : Mod
 {
-    /*********
-    ** Private fields
-    *********/
-    /// <summary>Tracks active buffs and their remaining durations. Key is buffId:source.</summary>
-    private Dictionary<string, int> _activeBuffs = new();
-    
-    /// <summary>Buffs that have been warned about expiring soon. Key is buffId:source.</summary>
-    private HashSet<string> _warningIssued = new();
-    
-    /// <summary>The mod configuration.</summary>
+    private readonly Dictionary<string, List<Buff>> _currentSources = new();
+    private readonly HashSet<string> _notifiedExpiringSources = new();
+
     private ModConfig _config = null!;
-    
-    /// <summary>Tracks sources and their associated buffs. Key is source name, value is list of buff names.</summary>
-    private Dictionary<string, HashSet<string>> _sourceBuffs = new();
-    
-    /*********
-    ** Constants
-    *********/
-    /// <summary>How often to check for buff changes (in game ticks).</summary>
+
     private const int CHECK_FREQUENCY_TICKS = 30;
-    
-    /// <summary>HUD message type for buff activation (green).</summary>
-    private const int HUD_TYPE_BUFF = 2;
-    
-    /// <summary>HUD message type for warnings (yellow).</summary>
-    private const int HUD_TYPE_WARNING = 3;
-    
-    /// <summary>HUD message type for buff expiration (red).</summary>
-    private const int HUD_TYPE_ERROR = 1;
-    
-    /// <summary>Conversion factor from milliseconds to seconds.</summary>
+    private const int WARNING_ICON_NUM = 2;
+    private const int ENDING_ICON_NUM = 3;
+    private const int STARTING_ICON_NUM = 1;
     private const int MS_TO_SECONDS = 1000;
 
-    /*********
-    ** Public methods
-    *********/
-    /// <summary>The mod entry point, called after the mod is first loaded.</summary>
-    /// <param name="helper">Provides simplified APIs for writing mods.</param>
     public override void Entry(IModHelper helper)
     {
-        // Load config
         _config = helper.ReadConfig<ModConfig>();
+        Logging.Monitor = Monitor;
         
-        // Register event handlers
         helper.Events.GameLoop.UpdateTicked += this.OnUpdateTicked;
-        helper.Events.GameLoop.SaveLoaded += this.OnSaveLoaded;
         helper.Events.GameLoop.DayStarted += this.OnDayStarted;
         helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
         
         this.Monitor.Log("Buff Notifications mod initialized", LogLevel.Info);
     }
 
-    /*********
-    ** Private methods
-    *********/
-    /// <summary>Raised after the game is launched, right before the first update tick.</summary>
-    /// <param name="sender">The event sender.</param>
-    /// <param name="e">The event data.</param>
     private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
     {
         // Register Generic Mod Config Menu if it's installed
@@ -132,167 +97,97 @@ internal sealed class ModEntry : Mod
         );
     }
     
-    /// <summary>Raised after the game state is updated (≈60 times per second).</summary>
-    /// <param name="sender">The event sender.</param>
-    /// <param name="e">The event data.</param>
     private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
     {
-        // Only process every CHECK_FREQUENCY_TICKS ticks to reduce overhead
         if (e.IsMultipleOf(CHECK_FREQUENCY_TICKS) && Context.IsWorldReady)
         {
             CheckBuffs();
         }
     }
     
-    /// <summary>Raised after a save is loaded.</summary>
-    /// <param name="sender">The event sender.</param>
-    /// <param name="e">The event data.</param>
-    private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
-    {
-        // Reset tracking when a save is loaded
-        _activeBuffs.Clear();
-        _warningIssued.Clear();
-        _sourceBuffs.Clear();
-    }
-    
-    /// <summary>Raised after a new day starts.</summary>
-    /// <param name="sender">The event sender.</param>
-    /// <param name="e">The event data.</param>
+
     private void OnDayStarted(object? sender, DayStartedEventArgs e)
     {
-        // Reset tracking at the start of each day
-        _activeBuffs.Clear();
-        _warningIssued.Clear();
-        _sourceBuffs.Clear();
+        _currentSources.Clear();
+        _notifiedExpiringSources.Clear();
     }
     
-    /// <summary>Check for buff changes and notify the player accordingly.</summary>
     private void CheckBuffs()
     {
         if (Game1.player.buffs == null)
             return;
             
-        Dictionary<string, int> currentBuffs = new();
-        Dictionary<string, HashSet<string>> currentSourceBuffs = new();
+        Dictionary<string, List<Buff>> currentAppliedSources = [];
+        Dictionary<string, int> sourcesExpiring = [];
         
-        // Get all current buffs and their remaining durations
         foreach (var buffId in Game1.player.buffs.AppliedBuffs.Keys)
         {
+            Logging.Monitor.Log($"BuffId: {buffId}");
             if (Game1.player.buffs.AppliedBuffs.TryGetValue(buffId, out Buff? buff) 
                 && buff != null 
-                && !string.IsNullOrEmpty(buff.displayName) 
                 && buff.millisecondsDuration > 0)
             {
+
                 int secondsRemaining = buff.millisecondsDuration / MS_TO_SECONDS;
-                
-                // Get the source of the buff
                 string source = GetBuffSource(buff);
-                
-                // Create a unique key that combines the buff name and source
-                string buffKey = $"{buff.displayName}:{source}";
-                
-                currentBuffs[buffKey] = secondsRemaining;
-                
-                // Track which buffs are from which sources
-                if (!currentSourceBuffs.ContainsKey(source))
+
+                if (!currentAppliedSources.TryAdd(source, new List<Buff> { buff }))
                 {
-                    currentSourceBuffs[source] = new HashSet<string>();
+                    currentAppliedSources[source].Add(buff);
                 }
-                currentSourceBuffs[source].Add(buff.displayName);
-                
-                // Check for new buffs
-                if (!_activeBuffs.ContainsKey(buffKey))
-                {
-                    // If this is a new source or a new buff from an existing source
-                    bool isNewSource = !_sourceBuffs.ContainsKey(source);
-                    bool isNewBuffFromSource = !isNewSource && !_sourceBuffs[source].Contains(buff.displayName);
-                    
-                    if (isNewSource)
-                    {
-                        // New source with its first buff
-                        if (_config.ShowBuffStartNotifications)
-                            NotifySourceBuffStarted(source, new List<Buff> { buff });
-                    }
-                    else if (isNewBuffFromSource)
-                    {
-                        // Existing source with a new buff
-                        if (_config.ShowBuffStartNotifications)
-                            NotifyAdditionalBuffFromSource(source, buff);
-                    }
-                }
-                
-                // Check for buffs about to expire
-                if (secondsRemaining <= _config.WarningThresholdSeconds && !_warningIssued.Contains(buffKey))
+
+                if (secondsRemaining <= _config.WarningThresholdSeconds)
                 {
                     if (_config.ShowBuffExpiringWarnings)
-                        NotifyBuffExpiringSoon(buff, source, secondsRemaining);
-                    _warningIssued.Add(buffKey);
+                    {
+                        sourcesExpiring.Add(source, secondsRemaining);
+                    }
                 }
             }
         }
-        
-        // Check for expired buffs and sources
-        foreach (var buffEntry in _activeBuffs)
+
+        foreach (var (source, buffs) in currentAppliedSources)
         {
-            if (!currentBuffs.ContainsKey(buffEntry.Key))
+            if (!_currentSources.ContainsKey(source))
             {
-                string[] parts = buffEntry.Key.Split(':', 2);
-                string buffName = parts[0];
-                string source = parts.Length > 1 ? parts[1] : "unknown source";
-                
-                // Check if this was the last buff from this source
-                bool isLastBuffFromSource = _sourceBuffs.ContainsKey(source) && 
-                                          _sourceBuffs[source].Contains(buffName) &&
-                                          (!currentSourceBuffs.ContainsKey(source) || 
-                                           currentSourceBuffs[source].Count == 0);
-                
-                if (isLastBuffFromSource)
-                {
-                    // Last buff from this source has ended
-                    if (_config.ShowBuffEndNotifications)
-                        NotifySourceBuffsEnded(source);
-                }
-                else
-                {
-                    // Individual buff has ended
-                    if (_config.ShowBuffEndNotifications)
-                        NotifyBuffEnded(buffName, source);
-                }
-                
-                _warningIssued.Remove(buffEntry.Key);
+                _currentSources.Add(source, buffs);
+                NotifyBuffSourceStarted(source, buffs);
             }
         }
-        
-        // Update active buffs and sources
-        _activeBuffs = currentBuffs;
-        _sourceBuffs = currentSourceBuffs;
+
+        foreach (var source in _currentSources.Keys)
+        {
+            if (!currentAppliedSources.ContainsKey(source))
+            {
+                _notifiedExpiringSources.Remove(source);
+                _currentSources.Remove(source);
+                NotifyBuffSourceEnded(source);
+            }
+        }
+
+        foreach (var (source, secondsRemaining) in sourcesExpiring)
+        {
+            if (!_notifiedExpiringSources.Contains(source))
+            {
+                _notifiedExpiringSources.Add(source);
+                NotifyBuffSourceExpiringSoon(source, secondsRemaining);
+            }
+        }
     }
     
-    /// <summary>Get the source of a buff.</summary>
-    /// <param name="buff">The buff to get the source for.</param>
-    /// <returns>A string describing the source of the buff.</returns>
-    private string GetBuffSource(Buff buff)
+    private static string GetBuffSource(Buff buff)
     {
-        // Try to determine the source based on buff properties
         if (buff.source != null && !string.IsNullOrEmpty(buff.source))
         {
             return buff.source;
         }
-        
-        // Use description to infer source if available
-        if (!string.IsNullOrEmpty(buff.description))
+        else 
         {
-            return buff.description;
+            return "unknown source";
         }
-        
-        // Default source if we can't determine it
-        return "unknown source";
     }
     
-    /// <summary>Get a description of the buff effects.</summary>
-    /// <param name="buff">The buff to describe.</param>
-    /// <returns>A string describing the effects of the buff.</returns>
-    private string GetBuffEffectsDescription(Buff buff)
+    private static string GetBuffEffectsDescription(Buff buff)
     {
         List<string> effects = new List<string>();
         
@@ -313,181 +208,37 @@ internal sealed class ModEntry : Mod
         
         if (effects.Count == 0)
         {
-            return "No visible effects";
+            return "";
         }
-        
-        return string.Join(", ", effects);
+        else 
+        {
+            return string.Join(", ", effects);
+        }
     }
     
-    /// <summary>Display a notification when buffs from a source are activated.</summary>
-    /// <param name="source">The source of the buffs.</param>
-    /// <param name="buffs">The buffs that were activated.</param>
-    private void NotifySourceBuffStarted(string source, List<Buff> buffs)
+    private void NotifyBuffSourceStarted(string source, List<Buff> buffs)
     {
-        // Create a description of all the buffs from this source
-        List<string> buffDescriptions = new List<string>();
+        List<string> allEffects = new();
+        
         foreach (var buff in buffs)
         {
-            string effects = GetBuffEffectsDescription(buff);
-            buffDescriptions.Add($"{buff.displayName} ({effects})");
+            allEffects.Add(GetBuffEffectsDescription(buff));
         }
         
-        string buffList = string.Join(", ", buffDescriptions);
-        string message = $"Effects from {source} activated: {buffList}";
-        
-        // Try to find an item that matches the source name to use as the icon
-        Item? sourceItem = FindItemByName(source);
-        
-        if (sourceItem != null)
-        {
-            // Use the item as the icon
-            HUDMessage hudMessage = HUDMessage.ForItemGained(sourceItem, 1);
-            hudMessage.message = message;
-            Game1.addHUDMessage(hudMessage);
-        }
-        else
-        {
-            // Use a standard notification
-            Game1.addHUDMessage(new HUDMessage(message, HUD_TYPE_BUFF));
-        }
-        
-        this.Monitor.Log(message, LogLevel.Info);
+        string effectsList = string.Join(", ", allEffects);
+        string message = $"{source} buffs - ({effectsList})";
+        Game1.addHUDMessage(new HUDMessage(message, STARTING_ICON_NUM));
     }
     
-    /// <summary>Display a notification when an additional buff from a source is activated.</summary>
-    /// <param name="source">The source of the buff.</param>
-    /// <param name="buff">The additional buff that was activated.</param>
-    private void NotifyAdditionalBuffFromSource(string source, Buff buff)
+    private void NotifyBuffSourceExpiringSoon(string source, int secondsRemaining)
     {
-        string effects = GetBuffEffectsDescription(buff);
-        string message = $"Additional effect from {source}: {buff.displayName} ({effects})";
-        
-        // Try to find an item that matches the source name to use as the icon
-        Item? sourceItem = FindItemByName(source);
-        
-        if (sourceItem != null)
-        {
-            // Use the item as the icon
-            HUDMessage hudMessage = HUDMessage.ForItemGained(sourceItem, 1);
-            hudMessage.message = message;
-            Game1.addHUDMessage(hudMessage);
-        }
-        else
-        {
-            // Use a standard notification
-            Game1.addHUDMessage(new HUDMessage(message, HUD_TYPE_BUFF));
-        }
-        
-        this.Monitor.Log(message, LogLevel.Info);
+        string message = $"{source} buffs expiring in {secondsRemaining} seconds!";
+        Game1.addHUDMessage(new HUDMessage(message, WARNING_ICON_NUM));
     }
     
-    /// <summary>Display a notification when a buff is about to expire.</summary>
-    /// <param name="buff">The buff that's expiring soon.</param>
-    /// <param name="source">The source of the buff.</param>
-    /// <param name="secondsRemaining">Seconds remaining before the buff expires.</param>
-    private void NotifyBuffExpiringSoon(Buff buff, string source, int secondsRemaining)
+    private void NotifyBuffSourceEnded(string source)
     {
-        string effects = GetBuffEffectsDescription(buff);
-        string message = $"{buff.displayName} effect from {source} expiring in {secondsRemaining} seconds! ({effects})";
-        
-        // Try to find an item that matches the source name to use as the icon
-        Item? sourceItem = FindItemByName(source);
-        
-        if (sourceItem != null)
-        {
-            // Use the item as the icon
-            HUDMessage hudMessage = HUDMessage.ForItemGained(sourceItem, 1);
-            hudMessage.message = message;
-            hudMessage.whatType = HUD_TYPE_WARNING; // Set the warning type
-            Game1.addHUDMessage(hudMessage);
-        }
-        else
-        {
-            // Use a standard notification
-            Game1.addHUDMessage(new HUDMessage(message, HUD_TYPE_WARNING));
-        }
-        
-        this.Monitor.Log(message, LogLevel.Info);
-    }
-    
-    /// <summary>Display a notification when a buff ends.</summary>
-    /// <param name="buffName">The name of the buff that ended.</param>
-    /// <param name="source">The source of the buff.</param>
-    private void NotifyBuffEnded(string buffName, string source)
-    {
-        string message = $"{buffName} effect from {source} has ended.";
-        
-        // Try to find an item that matches the source name to use as the icon
-        Item? sourceItem = FindItemByName(source);
-        
-        if (sourceItem != null)
-        {
-            // Use the item as the icon
-            HUDMessage hudMessage = HUDMessage.ForItemGained(sourceItem, 1);
-            hudMessage.message = message;
-            hudMessage.whatType = HUD_TYPE_ERROR; // Set the error type
-            Game1.addHUDMessage(hudMessage);
-        }
-        else
-        {
-            // Use a standard notification
-            Game1.addHUDMessage(new HUDMessage(message, HUD_TYPE_ERROR));
-        }
-        
-        this.Monitor.Log(message, LogLevel.Info);
-    }
-    
-    /// <summary>Display a notification when all buffs from a source have ended.</summary>
-    /// <param name="source">The source whose buffs have ended.</param>
-    private void NotifySourceBuffsEnded(string source)
-    {
-        string message = $"All effects from {source} have ended.";
-        
-        // Try to find an item that matches the source name to use as the icon
-        Item? sourceItem = FindItemByName(source);
-        
-        if (sourceItem != null)
-        {
-            // Use the item as the icon
-            HUDMessage hudMessage = HUDMessage.ForItemGained(sourceItem, 1);
-            hudMessage.message = message;
-            hudMessage.whatType = HUD_TYPE_ERROR; // Set the error type
-            Game1.addHUDMessage(hudMessage);
-        }
-        else
-        {
-            // Use a standard notification
-            Game1.addHUDMessage(new HUDMessage(message, HUD_TYPE_ERROR));
-        }
-        
-        this.Monitor.Log(message, LogLevel.Info);
-    }
-    
-    /// <summary>Try to find an item by name to use as an icon.</summary>
-    /// <param name="name">The name to search for.</param>
-    /// <returns>An item if found, null otherwise.</returns>
-    private Item? FindItemByName(string name)
-    {
-        if (string.IsNullOrEmpty(name))
-            return null;
-            
-        string cleanName = name.ToLower();
-        
-        // Common buff sources - using ItemRegistry.Create to properly create items
-        if (cleanName.Contains("coffee")) return ItemRegistry.Create("(O)395");
-        if (cleanName.Contains("tea")) return ItemRegistry.Create("(O)614");
-        if (cleanName.Contains("spicy eel")) return ItemRegistry.Create("(O)226");
-        if (cleanName.Contains("lucky lunch")) return ItemRegistry.Create("(O)241");
-        if (cleanName.Contains("maple bar")) return ItemRegistry.Create("(O)731");
-        if (cleanName.Contains("crab cake")) return ItemRegistry.Create("(O)732");
-        if (cleanName.Contains("pepper poppers")) return ItemRegistry.Create("(O)215");
-        if (cleanName.Contains("tom kha soup")) return ItemRegistry.Create("(O)218");
-        if (cleanName.Contains("triple shot espresso")) return ItemRegistry.Create("(O)253");
-        if (cleanName.Contains("seafoam pudding")) return ItemRegistry.Create("(O)265");
-        if (cleanName.Contains("algae soup")) return ItemRegistry.Create("(O)456");
-        if (cleanName.Contains("pale broth")) return ItemRegistry.Create("(O)457");
-        
-        // Try to create a generic food item if we can't find a specific match
-        return null;
+        string message = $"{source} buffs have ended.";
+        Game1.addHUDMessage(new HUDMessage(message, ENDING_ICON_NUM));
     }
 }
