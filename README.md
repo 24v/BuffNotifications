@@ -2,7 +2,7 @@
 
 A Stardew Valley mod that displays notifications when buffs start, are about to expire, and end.
 
-![Buff Notifications Overview](docs/images/buff_expiring_warning.png)
+![Buff Notifications Overview](docs/images/Buffs_Replaced.png)
 
 ## Features
 
@@ -13,16 +13,16 @@ A Stardew Valley mod that displays notifications when buffs start, are about to 
 ## Screenshots
 
 ### Buff Start Notification
-![Buff Start Notification](docs/images/buff_start_notification.png)
+![Buff Start Notification](docs/images/Buffs_Starting.png)
 *A notification appears when you consume food or drink that provides a buff*
 
 ### Buff Expiring Warning
-![Buff Expiring Warning](docs/images/buff_expiring_warning.png)
-*A warning appears when your buff is about to expire (10 seconds remaining)*
+![Buff Expiring Warning](docs/images/Buffs_Ending_Warning.png)
+*A warning appears when your buff is about to expire (Configurable - 10 seconds by default)*
 
 ### Buff Ended Warning
-![Buff Ended Notification](docs/images/buff_end_notification.png)
-*A warning appears when your buff is about to expire (10 seconds remaining)*
+![Buff Ended Notification](docs/images/Buffs_Ended.png)
+*A notification appears when a buff has ended*
 
 ## Installation
 

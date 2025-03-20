@@ -122,7 +122,6 @@ internal sealed class ModEntry : Mod
         
         foreach (var buffId in Game1.player.buffs.AppliedBuffs.Keys)
         {
-            Logging.Monitor.Log($"BuffId: {buffId}");
             if (Game1.player.buffs.AppliedBuffs.TryGetValue(buffId, out Buff? buff) 
                 && buff != null 
                 && buff.millisecondsDuration > 0)
@@ -226,7 +225,7 @@ internal sealed class ModEntry : Mod
         }
         
         string effectsList = string.Join(", ", allEffects);
-        string message = $"{source} buffs - ({effectsList})";
+        string message = $"{source} Buffs ({effectsList})";
         Game1.addHUDMessage(new HUDMessage(message, STARTING_ICON_NUM));
     }
     
