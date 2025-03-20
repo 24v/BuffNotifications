@@ -118,11 +118,10 @@ if [ "$PREPARE_MODE" = true ]; then
     # Check if the zip file exists
     if [ -f "./BuffNotifications/bin/Release/net6.0/$MOD_NAME.zip" ]; then
         cp "./BuffNotifications/bin/Release/net6.0/$MOD_NAME.zip" "$RELEASE_ZIP_PATH"
-    elif [ -f "./BuffNotifications/bin/Release/net5.0/$MOD_NAME.zip" ]; then
-        cp "./BuffNotifications/bin/Release/net5.0/$MOD_NAME.zip" "$RELEASE_ZIP_PATH"
     else
-        echo "Warning: Release zip not found. Creating an empty file for testing."
-        touch "$RELEASE_ZIP_PATH"
+        echo "Error: Release zip not found at ./BuffNotifications/bin/Release/net6.0/$MOD_NAME.zip"
+        echo "Build process may have failed or didn't generate a zip file"
+        exit 1
     fi
     
     # Generate BBCode version of README for Nexus Mods
@@ -259,14 +258,18 @@ if [ "$RELEASE_MODE" = true ]; then
     # Get the release zip path
     RELEASE_ZIP_PATH="$RELEASES_DIR/$MOD_NAME-$VERSION.zip"
     
-    # Check if the release zip exists
+    # Check if the release zip exists and is not empty
     if [ ! -f "$RELEASE_ZIP_PATH" ] && [ "$DRY_RUN" = false ]; then
         echo "Error: Release zip not found at $RELEASE_ZIP_PATH"
         echo "Make sure to run in prepare mode first to create the release zip"
         exit 1
-    elif [ ! -f "$RELEASE_ZIP_PATH" ] && [ "$DRY_RUN" = true ]; then
-        echo "[DRY RUN] Release zip not found, creating an empty file for testing"
-        touch "$RELEASE_ZIP_PATH"
+    elif [ ! -s "$RELEASE_ZIP_PATH" ] && [ "$DRY_RUN" = false ]; then
+        echo "Error: Release zip is empty at $RELEASE_ZIP_PATH"
+        echo "Make sure the prepare mode completed successfully"
+        exit 1
+    elif [ "$DRY_RUN" = true ] && ([ ! -f "$RELEASE_ZIP_PATH" ] || [ ! -s "$RELEASE_ZIP_PATH" ]); then
+        echo "[DRY RUN] Release zip not found or empty, would fail in normal mode"
+        echo "[DRY RUN] Continuing for demonstration purposes only"
     else
         echo "Found release zip at $RELEASE_ZIP_PATH"
     fi
