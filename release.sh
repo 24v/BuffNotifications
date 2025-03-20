@@ -102,6 +102,13 @@ RELEASE_NOTES=$(awk -v version="$VERSION" '
 
 # Create GitHub release
 echo "Creating GitHub release"
+
+# Check if a release with this tag already exists and delete it
+if gh release view "$TAG_NAME" &>/dev/null; then
+    echo "Deleting existing GitHub release for $TAG_NAME"
+    gh release delete "$TAG_NAME" --yes
+fi
+
 gh release create "$TAG_NAME" "$RELEASE_ZIP_PATH" \
     --title "$MOD_NAME v$VERSION" \
     --notes "$RELEASE_NOTES" \
@@ -127,83 +134,32 @@ fi
 
 GITHUB_RAW_BASE="https://raw.githubusercontent.com/$GITHUB_USERNAME/$GITHUB_REPO/main"
 
-# Create a Python script to convert Markdown to BBCode
-cat > convert_to_bbcode.py << 'EOF'
-import sys
-import re
+# Convert README.md to BBCode
+cat README.md | sed -E '
+    # Headers
+    s/^# (.*)$/[size=6][b]\1[\/b][\/size]/g
+    s/^## (.*)$/[size=5][b]\1[\/b][\/size]/g
+    s/^### (.*)$/[size=4][b]\1[\/b][\/size]/g
+    
+    # Bold and Italic
+    s/\*\*([^*]+)\*\*/[b]\1[\/b]/g
+    s/\*([^*]+)\*/[i]\1[\/i]/g
+    
+    # Lists
+    s/^- (.*)$/[*] \1/g
+    s/^[0-9]+\. (.*)$/[list=1][*] \1/g
+    
+    # Links
+    s/\[([^\]]+)\]\(([^)]+)\)/[url=\2]\1[\/url]/g
+    
+    # Code blocks
+    s/```([^`]*)```/[code]\1[\/code]/g
+    s/`([^`]*)`/[font=Courier New]\1[\/font]/g
+' > "$README_BBCODE.tmp"
 
-def convert_to_bbcode(markdown_text, github_raw_base):
-    # Process the file line by line to handle special cases
-    lines = markdown_text.split('\n')
-    result_lines = []
-    
-    for line in lines:
-        # Handle images first
-        line = re.sub(r'!\[(.*?)\]\((.*?)\)', r'[img]' + github_raw_base + r'/\2[/img]', line)
-        
-        # Handle headers
-        if line.startswith('# '):
-            line = '[size=6][b]' + line[2:] + '[/b][/size]'
-        elif line.startswith('## '):
-            line = '[size=5][b]' + line[3:] + '[/b][/size]'
-        elif line.startswith('### '):
-            line = '[size=4][b]' + line[4:] + '[/b][/size]'
-        # Handle lists
-        elif line.startswith('- '):
-            # Process the rest of the line for other markdown elements
-            rest_of_line = line[2:]
-            # Handle links in list items
-            rest_of_line = re.sub(r'\[(.*?)\]\((.*?)\)', r'[url=\2]\1[/url]', rest_of_line)
-            # Handle bold and italic
-            rest_of_line = re.sub(r'\*\*(.*?)\*\*', r'[b]\1[/b]', rest_of_line)
-            rest_of_line = re.sub(r'\*(.*?)\*', r'[i]\1[/i]', rest_of_line)
-            line = '[*] ' + rest_of_line
-        elif re.match(r'^\d+\. ', line):
-            # Extract the rest of the line after the number and period
-            rest_of_line = re.sub(r'^\d+\. ', '', line)
-            # Handle links in list items
-            rest_of_line = re.sub(r'\[(.*?)\]\((.*?)\)', r'[url=\2]\1[/url]', rest_of_line)
-            # Handle bold and italic
-            rest_of_line = re.sub(r'\*\*(.*?)\*\*', r'[b]\1[/b]', rest_of_line)
-            rest_of_line = re.sub(r'\*(.*?)\*', r'[i]\1[/i]', rest_of_line)
-            line = '[*] ' + rest_of_line
-        else:
-            # For regular lines, handle links, bold, and italic
-            line = re.sub(r'\[(.*?)\]\((.*?)\)', r'[url=\2]\1[/url]', line)
-            line = re.sub(r'\*\*(.*?)\*\*', r'[b]\1[/b]', line)
-            line = re.sub(r'\*(.*?)\*', r'[i]\1[/i]', line)
-        
-        # Handle code blocks and inline code
-        line = re.sub(r'`([^`]*)`', r'[font=Courier New]\1[/font]', line)
-        
-        result_lines.append(line)
-    
-    # Join the lines back together
-    result = '\n'.join(result_lines)
-    
-    # Handle multi-line code blocks
-    result = re.sub(r'```(.*?)```', r'[code]\1[/code]', result, flags=re.DOTALL)
-    
-    return result
-
-if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python convert_to_bbcode.py <github_raw_base> <input_file>")
-        sys.exit(1)
-        
-    github_raw_base = sys.argv[1]
-    input_file = sys.argv[2]
-    
-    with open(input_file, 'r') as f:
-        markdown_text = f.read()
-    
-    bbcode_text = convert_to_bbcode(markdown_text, github_raw_base)
-    print(bbcode_text)
-EOF
-
-# Run the Python script to convert README.md to BBCode
-python3 convert_to_bbcode.py "$GITHUB_RAW_BASE" README.md > "$README_BBCODE"
-rm convert_to_bbcode.py
+# Process images with absolute GitHub URLs
+cat "$README_BBCODE.tmp" | sed -E "s|!\[([^\]]+)\]\(([^)]+)\)|[img]$GITHUB_RAW_BASE/\2[/img]|g" > "$README_BBCODE"
+rm "$README_BBCODE.tmp"
 
 echo "BBCode version of README generated at $README_BBCODE"
 
