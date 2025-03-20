@@ -115,11 +115,11 @@ if [ "$PREPARE_MODE" = true ]; then
     RELEASE_ZIP_PATH="$RELEASES_DIR/$MOD_NAME-$VERSION.zip"
     echo "Copying release zip to $RELEASE_ZIP_PATH"
     
-    # Check if the zip file exists
-    if [ -f "./BuffNotifications/bin/Release/net6.0/$MOD_NAME.zip" ]; then
-        cp "./BuffNotifications/bin/Release/net6.0/$MOD_NAME.zip" "$RELEASE_ZIP_PATH"
+    # Check if the zip file exists - try both with and without version
+    if [ -f "./BuffNotifications/bin/Release/net6.0/$MOD_NAME $VERSION.zip" ]; then
+        cp "./BuffNotifications/bin/Release/net6.0/$MOD_NAME $VERSION.zip" "$RELEASE_ZIP_PATH"
     else
-        echo "Error: Release zip not found at ./BuffNotifications/bin/Release/net6.0/$MOD_NAME.zip"
+        echo "Error: Release zip not found at ./BuffNotifications/bin/Release/net6.0/$MOD_NAME $VERSION.zip"
         echo "Build process may have failed or didn't generate a zip file"
         exit 1
     fi
