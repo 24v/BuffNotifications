@@ -7,7 +7,7 @@ A Stardew Valley mod that displays notifications when buffs start, are about to 
 ## Features
 
 - **Buff Start Notifications**: Receive a notification when a buff is activated
-- **Buff Expiring Warnings**: Get a warning when a buff is about to expire (10 seconds before expiration)
+- **Buff Expiring Warnings**: Get a warning when a buff is about to expire (10 seconds before expiration -- configurable)
 - **Buff End Notifications**: Be notified when a buff has ended
 
 ## Screenshots
